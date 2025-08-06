@@ -1,0 +1,112 @@
+package main
+
+import (
+	"fmt"
+	"log"
+
+	"github.com/winfsp/cgofuse/fuse"
+)
+
+type EmailMetadata struct {
+	uid     uint64
+	subject string
+	bodyLen int64
+}
+
+type EmailReader interface {
+	read(id uint64) string
+}
+
+type EmailUpdatesNotifier interface {
+	notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata) error
+}
+
+type EmailFs struct {
+	fuse.FileSystemBase
+	emailReader     EmailReader
+	emailNotifier   EmailUpdatesNotifier
+	emailsMetadata  map[string]EmailMetadata
+	openFiles       map[uint64]string
+	userId          uint
+	newMessages     chan EmailMetadata
+	removedMessages chan EmailMetadata
+}
+
+func (self *EmailFs) Init() {
+	self.openFiles = make(map[uint64]string)
+	self.emailsMetadata = make(map[string]EmailMetadata)
+	self.newMessages = make(chan EmailMetadata, 500)
+	self.removedMessages = make(chan EmailMetadata, 500)
+	self.emailNotifier.notify([]EmailMetadata{}, self.newMessages, self.removedMessages)
+}
+
+func (self *EmailFs) Destroy() {}
+
+func (self *EmailFs) Open(path string, flags int) (errc int, fh uint64) {
+	// if match == nil {
+	// 	return -fuse.ENOENT, ^uint64(0)
+	// }
+	fmt.Printf("Open file %s\n", path)
+	uid := self.emailsMetadata[path].uid
+	body := self.emailReader.read(uid)
+	self.openFiles[uid] = body
+	return 0, 0
+}
+
+func (self *EmailFs) Release(path string, fh uint64) int {
+	fmt.Printf("Release file %s\n", path)
+	uid := self.emailsMetadata[path].uid
+	delete(self.openFiles, uid)
+	return 0
+}
+
+func (self *EmailFs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc int) {
+	stat.Uid = uint32(self.userId)
+	stat.Gid = stat.Uid
+	if path == "/" {
+		stat.Mode = fuse.S_IFDIR | 0550
+		return 0
+	}
+
+	fmt.Printf("Getattr %s\n", path)
+	stat.Mode = fuse.S_IFREG | 0440
+	stat.Size = int64(self.emailsMetadata[path].bodyLen)
+	return 0
+}
+
+func (self *EmailFs) Read(path string, buff []byte, ofst int64, fh uint64) int {
+	fmt.Printf("Read file: %s , handle: %d", path, fh)
+	endofst := ofst + int64(len(buff))
+	contents := self.openFiles[self.emailsMetadata[path].uid]
+	if endofst > int64(len(contents)) {
+		endofst = int64(len(contents))
+	}
+	if endofst < ofst {
+		return 0
+	}
+	return copy(buff, contents[ofst:endofst])
+}
+
+func (self *EmailFs) Readdir(path string,
+	fill func(name string, stat *fuse.Stat_t, ofst int64) bool,
+	ofst int64,
+	fh uint64) (errc int) {
+	log.Println("readdir")
+	// fill(".", nil, 0)
+	// fill("..", nil, 0)
+
+	for more := true; more; {
+		select {
+		case email := <-self.newMessages:
+			self.emailsMetadata[fmt.Sprintf("/%s", email.subject)] = email
+		case email := <-self.removedMessages:
+			delete(self.emailsMetadata, fmt.Sprintf("/%s", email.subject))
+		default:
+			more = false
+		}
+	}
+	for _, email := range self.emailsMetadata {
+		fill(email.subject, nil, 0)
+	}
+	return 0
+}
