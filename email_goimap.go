@@ -39,12 +39,13 @@ func (self *GoImapEmailInterface) initFetch(lastMessagesCount uint32) error {
 func (self *GoImapEmailInterface) fetchNext() (EmailMetadata, error) {
 	pMsg := self.fetchCmd.Next()
 	if pMsg == nil {
-		return EmailMetadata{}, errors.New("no more messages")
+		closeErr := self.fetchCmd.Close()
+		return EmailMetadata{}, errors.Join(closeErr, errors.New("no more messages"))
 	}
 	msg, err := pMsg.Collect()
 	if err != nil {
-		self.fetchCmd.Close()
-		return EmailMetadata{}, err
+		closeErr := self.fetchCmd.Close()
+		return EmailMetadata{}, errors.Join(err, closeErr, errors.New("msg reading error"))
 	}
 	return EmailMetadata{subject: msg.Envelope.Subject, uid: uint64(msg.UID), bodyLen: msg.RFC822Size}, nil
 }
@@ -157,15 +158,13 @@ func (s *GoImapUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessage
 	}
 
 	go func() {
-		emailsMetadata, err := s.reader.fetchNext()
-		for err == nil {
+		for emailsMetadata, err := s.reader.fetchNext(); err == nil; emailsMetadata, err = s.reader.fetchNext() {
 			_, known := removedMessagesByUids[emailsMetadata.uid]
 			if known {
 				delete(removedMessagesByUids, emailsMetadata.uid)
 			} else {
 				newMessages <- emailsMetadata
 			}
-			emailsMetadata, err = s.reader.fetchNext()
 		}
 		for _, v := range removedMessagesByUids {
 			removedMessages <- v

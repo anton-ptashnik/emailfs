@@ -46,7 +46,7 @@ func (self *EmailFs) Open(path string, flags int) (errc int, fh uint64) {
 	// if match == nil {
 	// 	return -fuse.ENOENT, ^uint64(0)
 	// }
-	fmt.Printf("Open file %s\n", path)
+	log.Printf("Open file %s\n", path)
 	uid := self.emailsMetadata[path].uid
 	body := self.emailReader.read(uid)
 	self.openFiles[uid] = body
@@ -54,7 +54,7 @@ func (self *EmailFs) Open(path string, flags int) (errc int, fh uint64) {
 }
 
 func (self *EmailFs) Release(path string, fh uint64) int {
-	fmt.Printf("Release file %s\n", path)
+	log.Printf("Release file %s\n", path)
 	delete(self.openFiles, fh)
 	return 0
 }
@@ -67,14 +67,15 @@ func (self *EmailFs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc in
 		return 0
 	}
 
-	fmt.Printf("Getattr %s\n", path)
+	log.Printf("Getattr %s\n", path)
 	stat.Mode = fuse.S_IFREG | 0440
 	stat.Size = int64(self.emailsMetadata[path].bodyLen)
+	stat.Blocks = (stat.Size + 511) / 512
 	return 0
 }
 
 func (self *EmailFs) Read(path string, buff []byte, ofst int64, fh uint64) int {
-	fmt.Printf("Read file: %s , handle: %d", path, fh)
+	log.Printf("Read file: %s , handle: %d", path, fh)
 	endofst := ofst + int64(len(buff))
 	contents := self.openFiles[fh]
 	if endofst > int64(len(contents)) {
@@ -90,13 +91,14 @@ func (self *EmailFs) Readdir(path string,
 	fill func(name string, stat *fuse.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) (errc int) {
-	log.Println("readdir")
-	// fill(".", nil, 0)
-	// fill("..", nil, 0)
+	log.Println("readdir enter, offs: ", ofst)
+	// fill(".", &fuse.Stat_t{Mode: syscall.S_IFDIR | 0755}, 1)
+	// fill("..", &fuse.Stat_t{Mode: syscall.S_IFDIR | 0755}, 2)
 
 	for more := true; more; {
 		select {
 		case email := <-self.newMessages:
+			email.subject = ClearFilename(email.subject)
 			self.emailsMetadata[fmt.Sprintf("/%s", email.subject)] = email
 		case email := <-self.removedMessages:
 			delete(self.emailsMetadata, fmt.Sprintf("/%s", email.subject))
@@ -104,8 +106,16 @@ func (self *EmailFs) Readdir(path string,
 			more = false
 		}
 	}
+	var stat fuse.Stat_t
+	stat.Mode = fuse.S_IFREG | 0440
 	for _, email := range self.emailsMetadata {
-		fill(email.subject, nil, 0)
+		stat.Size = int64(email.bodyLen)
+		stat.Blocks = (stat.Size + 511) / 512
+		ok := fill(email.subject, &stat, 0) //int64(len(self.emailsMetadata)))
+		if !ok {
+			log.Println("err filling a filedir")
+		}
 	}
+	log.Println("readdir exit")
 	return 0
 }
