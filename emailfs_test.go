@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -28,10 +29,13 @@ func (s *FakeEmailReader) read(id uint64) string {
 }
 
 func TestReaddir(t *testing.T) {
-	subjects := []string{"email 1 subject", "email 2 subject"}
-	testMetadata := []EmailMetadata{
-		{subject: subjects[0]},
-		{subject: subjects[1]},
+	var subjects []string
+	for i := 0; i < 100; i++ {
+		subjects = append(subjects, fmt.Sprintf("email subject %d", i))
+	}
+	var testMetadata []EmailMetadata
+	for _, v := range subjects {
+		testMetadata = append(testMetadata, EmailMetadata{subject: v})
 	}
 
 	emailNotifier := FakeUpdatesNotifier{}
@@ -73,9 +77,9 @@ func TestRead(t *testing.T) {
 	emailNotifier.newMessages <- testMetadata
 	emailReader.body = body
 	fs.Readdir("/", fill, 0, 0)
-	fs.Open(filename, 0)
+	_, fh := fs.Open(filename, 0)
 	buf := make([]byte, 99)
-	lenRead := fs.Read(filename, buf, 0, 0)
+	lenRead := fs.Read(filename, buf, 0, fh)
 	if string(buf[:lenRead]) != body {
 		t.Errorf("Exp %s got %s", body, string(buf))
 	}

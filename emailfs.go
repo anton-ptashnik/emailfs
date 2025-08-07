@@ -50,13 +50,12 @@ func (self *EmailFs) Open(path string, flags int) (errc int, fh uint64) {
 	uid := self.emailsMetadata[path].uid
 	body := self.emailReader.read(uid)
 	self.openFiles[uid] = body
-	return 0, 0
+	return 0, uid
 }
 
 func (self *EmailFs) Release(path string, fh uint64) int {
 	fmt.Printf("Release file %s\n", path)
-	uid := self.emailsMetadata[path].uid
-	delete(self.openFiles, uid)
+	delete(self.openFiles, fh)
 	return 0
 }
 
@@ -77,7 +76,7 @@ func (self *EmailFs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc in
 func (self *EmailFs) Read(path string, buff []byte, ofst int64, fh uint64) int {
 	fmt.Printf("Read file: %s , handle: %d", path, fh)
 	endofst := ofst + int64(len(buff))
-	contents := self.openFiles[self.emailsMetadata[path].uid]
+	contents := self.openFiles[fh]
 	if endofst > int64(len(contents)) {
 		endofst = int64(len(contents))
 	}
