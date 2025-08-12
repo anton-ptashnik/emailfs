@@ -108,14 +108,16 @@ func (self *EmailFs) Readdir(path string,
 	}
 	var stat fuse.Stat_t
 	stat.Mode = fuse.S_IFREG | 0440
+	var fillFailed bool
 	for _, email := range self.emailsMetadata {
 		stat.Size = int64(email.bodyLen)
 		stat.Blocks = (stat.Size + 511) / 512
 		ok := fill(email.subject, &stat, 0) //int64(len(self.emailsMetadata)))
-		if !ok {
-			log.Println("err filling a filedir")
-		}
+		fillFailed = fillFailed || !ok
+	}
+	if fillFailed {
+		errc = 1
 	}
 	log.Println("readdir exit")
-	return 0
+	return
 }

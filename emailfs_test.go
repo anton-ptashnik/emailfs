@@ -59,6 +59,33 @@ func TestReaddir(t *testing.T) {
 	}
 }
 
+func TestReaddirFailsOnProhibitedFilename(t *testing.T) {
+	var subjects []string
+	for i := 0; i < 5; i++ {
+		subjects = append(subjects, fmt.Sprintf("email subject %d", i))
+	}
+	var testMetadata []EmailMetadata
+	for _, v := range subjects {
+		testMetadata = append(testMetadata, EmailMetadata{subject: v})
+	}
+
+	emailNotifier := FakeUpdatesNotifier{}
+	fs := EmailFs{emailNotifier: &emailNotifier}
+	fs.Init()
+
+	fill := func(name string, stat *fuse.Stat_t, ofst int64) bool {
+		return false
+	}
+	for _, v := range testMetadata {
+		emailNotifier.newMessages <- v
+	}
+
+	errCode := fs.Readdir("/", fill, 0, 0)
+	if errCode != 1 {
+		t.Errorf("Received %d errc instead of 1", errCode)
+	}
+}
+
 func TestRead(t *testing.T) {
 	body := "bodyyyyyyyyyyy"
 	testMetadata := EmailMetadata{
