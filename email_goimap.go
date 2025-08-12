@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"log"
@@ -59,76 +60,68 @@ func (self *GoImapEmailInterface) read(id uint64) string {
 	}
 	fetchCmd := self.c.Fetch(seqSet, fetchOptions)
 	defer fetchCmd.Close()
+
+	msg := fetchCmd.Next()
+	if msg == nil {
+		return "msg receive error"
+	}
+
+	msgBuf, err := msg.Collect()
+	if err != nil || msgBuf == nil {
+		return "msg collect err"
+	}
+
+	msgBytes := msgBuf.FindBodySection(bodySection)
+	if msgBytes == nil {
+		return "msg read errrrrrrrrrrrrrrrrr"
+	}
+
+	mr, err := mail.CreateReader(bytes.NewReader(msgBytes))
+	if err != nil {
+		log.Fatalf("failed to create mail reader: %v", err)
+	}
+
+	// Print a few header fields
+	// h := mr.Header
+	// if date, err := h.Date(); err != nil {
+	// 	log.Printf("failed to parse Date header field: %v", err)
+	// } else {
+	// 	log.Printf("Date: %v", date)
+	// }
+	// if to, err := h.AddressList("To"); err != nil {
+	// 	log.Printf("failed to parse To header field: %v", err)
+	// } else {
+	// 	log.Printf("To: %v", to)
+	// }
+	// if subject, err := h.Text("Subject"); err != nil {
+	// 	log.Printf("failed to parse Subject header field: %v", err)
+	// } else {
+	// 	log.Printf("Subject: %v", subject)
+	// }
+
 	var sbuf strings.Builder
 	for {
-		msg := fetchCmd.Next()
-		if msg == nil {
+		p, err := mr.NextPart()
+		if err == io.EOF {
 			break
+		} else if err != nil {
+			log.Fatalf("failed to read message part: %v", err)
 		}
 
-		for {
-			item := msg.Next()
-			if item == nil {
-				break
+		switch h := p.Header.(type) {
+		case *mail.InlineHeader:
+			mediaType, _, _ := h.ContentType()
+			log.Println("Content type: ", mediaType)
+			if mediaType == "text/plain" {
+				b, _ := io.ReadAll(p.Body)
+				sbuf.Write(b)
 			}
-
-			switch item := item.(type) {
-			case imapclient.FetchItemDataUID:
-				log.Printf("UID: %v", item.UID)
-			case imapclient.FetchItemDataBodySection:
-				mr, err := mail.CreateReader(item.Literal)
-				if err != nil {
-					log.Fatalf("failed to create mail reader: %v", err)
-				}
-
-				// Print a few header fields
-				// h := mr.Header
-				// if date, err := h.Date(); err != nil {
-				// 	log.Printf("failed to parse Date header field: %v", err)
-				// } else {
-				// 	log.Printf("Date: %v", date)
-				// }
-				// if to, err := h.AddressList("To"); err != nil {
-				// 	log.Printf("failed to parse To header field: %v", err)
-				// } else {
-				// 	log.Printf("To: %v", to)
-				// }
-				// if subject, err := h.Text("Subject"); err != nil {
-				// 	log.Printf("failed to parse Subject header field: %v", err)
-				// } else {
-				// 	log.Printf("Subject: %v", subject)
-				// }
-
-				// Process the message's parts
-				for {
-					p, err := mr.NextPart()
-					if err == io.EOF {
-						break
-					} else if err != nil {
-						log.Fatalf("failed to read message part: %v", err)
-					}
-
-					switch h := p.Header.(type) {
-					case *mail.InlineHeader:
-						mediaType, _, _ := h.ContentType()
-						log.Println("Content type: ", mediaType)
-						if mediaType == "text/plain" {
-							b, _ := io.ReadAll(p.Body)
-							sbuf.Write(b)
-							// log.Printf("Inline text: %v", string(b))
-						}
-						// case *mail.AttachmentHeader:
-						// 	// This is an attachment
-						// 	filename, _ := h.Filename()
-						// 	log.Printf("Attachment: %v", filename)
-					}
-				}
-			}
+			// case *mail.AttachmentHeader:
+			// 	// This is an attachment
+			// 	filename, _ := h.Filename()
+			// 	log.Printf("Attachment: %v", filename)
 		}
 	}
-	// if err := fetchCmd.Close(); err != nil {
-	// 	log.Fatalf("FETCH command failed: %v", err)
-	// }
 	return sbuf.String()
 }
 
