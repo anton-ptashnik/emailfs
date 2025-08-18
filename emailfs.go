@@ -91,7 +91,7 @@ func (self *EmailFs) Readdir(path string,
 	fill func(name string, stat *fuse.Stat_t, ofst int64) bool,
 	ofst int64,
 	fh uint64) (errc int) {
-	log.Println("readdir enter, offs: ", ofst)
+	log.Println("readdir, offs: ", ofst)
 	// fill(".", &fuse.Stat_t{Mode: syscall.S_IFDIR | 0755}, 1)
 	// fill("..", &fuse.Stat_t{Mode: syscall.S_IFDIR | 0755}, 2)
 
@@ -108,16 +108,14 @@ func (self *EmailFs) Readdir(path string,
 	}
 	var stat fuse.Stat_t
 	stat.Mode = fuse.S_IFREG | 0440
-	var fillFailed bool
 	for _, email := range self.emailsMetadata {
 		stat.Size = int64(email.bodyLen)
 		stat.Blocks = (stat.Size + 511) / 512
-		ok := fill(email.subject, &stat, 0) //int64(len(self.emailsMetadata)))
-		fillFailed = fillFailed || !ok
+		fillOk := fill(email.subject, &stat, 0) //int64(len(self.emailsMetadata)))
+		if !fillOk {
+			errc = 1
+			break
+		}
 	}
-	if fillFailed {
-		errc = 1
-	}
-	log.Println("readdir exit")
 	return
 }

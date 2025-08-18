@@ -15,13 +15,13 @@ import (
 
 func main() {
 	user, _ := user.Current()
-	uid64, _ := strconv.ParseUint(user.Uid, 10, 16)
-	uid := uint(uid64)
+	userId64, _ := strconv.ParseUint(user.Uid, 10, 16)
+	userId := uint(userId64)
 	godotenv.Load()
 
 	exePath, _ := os.Executable()
 	exeDir := filepath.Dir(exePath)
-	gmailTokenFilepath := filepath.Join(exeDir, "token.json")
+	gmailTokenFilepath := filepath.Join(exeDir, "gmail-token.json")
 	emailAuth, err := NewGAuth(gmailTokenFilepath)
 	emailInterface, err := emailAuth.Login()
 	if err != nil {
@@ -31,7 +31,7 @@ func main() {
 
 	emailNotifier := NewGoImapUpdatesNotifier(emailInterface)
 	emailReader := NewGoImapEmailReader(emailInterface)
-	hellofs := &EmailFs{emailNotifier: emailNotifier, emailReader: emailReader, userId: uid}
+	hellofs := &EmailFs{emailNotifier: emailNotifier, emailReader: emailReader, userId: userId}
 	host := fuse.NewFileSystemHost(hellofs)
 	args, err := parseArgs()
 	if err != nil {
