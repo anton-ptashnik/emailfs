@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/user"
@@ -31,5 +33,25 @@ func main() {
 	emailReader := NewGoImapEmailReader(emailInterface)
 	hellofs := &EmailFs{emailNotifier: emailNotifier, emailReader: emailReader, userId: uid}
 	host := fuse.NewFileSystemHost(hellofs)
-	host.Mount("./vfs", os.Args[1:])
+	args, err := parseArgs()
+	if err != nil {
+		printUsage()
+		os.Exit(1)
+	}
+	host.Mount(args.mountpoint, nil)
+}
+
+type argsStruct struct {
+	mountpoint string
+}
+
+func parseArgs() (argsStruct, error) {
+	if len(os.Args) != 2 {
+		return argsStruct{}, errors.New("wrong usage")
+	}
+	return argsStruct{mountpoint: os.Args[1]}, nil
+}
+
+func printUsage() {
+	fmt.Println("Usage: emailfs <mountpoint>")
 }

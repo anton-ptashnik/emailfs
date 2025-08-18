@@ -39,4 +39,14 @@ CLIENT_SECRET=
 EMAIL_ADDRESS=
 ``` 
 
-Once done you can start the app. Browser will be opened and you will be prompted to grant EmailFS access to your mailbox, once confirmed you'll have your emails listed within a folder.
+## Start the app
+
+Once done you can start the app.
+
+```
+./emailfs <mountpoint>
+```
+
+Where `mountpoint` is path to an empty dir to fill with emails.
+
+On the first start a browser will be opened with a prompt to grant EmailFS access to your mailbox, when confirmed, emails will be listed under the specified mountpoint.
