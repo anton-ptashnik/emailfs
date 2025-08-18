@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net"
+	"net/http"
 	"os"
 
 	"github.com/emersion/go-imap/v2/imapclient"
@@ -22,12 +25,11 @@ type GmailAuthorizer struct {
 func (self *GmailAuthorizer) Login() (EmailInterface, error) {
 	clientID := os.Getenv("CLIENT_ID")
 	clientSecret := os.Getenv("CLIENT_SECRET")
-	redirectURL := os.Getenv("REDIRECT_URL")
 
 	conf := &oauth2.Config{
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
-		RedirectURL:  redirectURL,
+		RedirectURL:  "http://127.0.0.1:44444",
 		Scopes:       []string{"https://mail.google.com/"},
 		Endpoint:     google.Endpoint,
 	}
@@ -35,12 +37,14 @@ func (self *GmailAuthorizer) Login() (EmailInterface, error) {
 	_token, err := loadToken(self.tokenFilepath)
 	if err != nil {
 		_token, err = interactiveAuth(conf)
+		if err != nil {
+			return nil, err
+		}
 		saveToken(self.tokenFilepath, _token)
 	}
 	if err != nil {
 		return nil, err
 	}
-
 	tokenSrc := conf.TokenSource(context.Background(), _token)
 	token, err := tokenSrc.Token()
 	if err != nil {
@@ -72,19 +76,38 @@ func NewGAuth(tokenFilepath string) (*GmailAuthorizer, error) {
 }
 
 func interactiveAuth(conf *oauth2.Config) (*oauth2.Token, error) {
-	authURL := conf.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-	fmt.Printf("Visit the URL below to authorize:\n%v\n", authURL)
-
-	fmt.Print("Enter the code: ")
-	var code string
-	fmt.Scan(&code)
-
-	token, err := conf.Exchange(context.Background(), code)
+	listener, err := net.Listen("tcp", "127.0.0.1:44444")
 	if err != nil {
-		log.Println("Token exchange error:", err)
-		return nil, err
+		log.Fatal(err)
 	}
-	return token, nil
+	defer listener.Close()
+
+	state := "state123"
+	authURL := conf.AuthCodeURL(state, oauth2.AccessTypeOffline)
+
+	openBrowser(authURL)
+	fmt.Println("If browser didn't open, visit:", authURL)
+
+	codeCh := make(chan string)
+	go func() {
+		http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("state") != state {
+				http.Error(w, "Invalid state", http.StatusBadRequest)
+				return
+			}
+			code := r.URL.Query().Get("code")
+			io.WriteString(w, "Authorization complete. You can close this tab.")
+			codeCh <- code
+		}))
+	}()
+
+	code := <-codeCh
+	log.Println("code: ", code)
+	tok, err := conf.Exchange(context.Background(), code)
+	if err != nil {
+		log.Fatal("OAuth exchange failed:", err)
+	}
+	return tok, nil
 }
 
 func saveToken(path string, token *oauth2.Token) error {
