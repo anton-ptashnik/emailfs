@@ -12,7 +12,6 @@ import (
 	"github.com/emersion/go-imap/v2/imapclient"
 	"github.com/emersion/go-sasl"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 )
 
 type GmailAuthorizer struct {
@@ -29,7 +28,10 @@ func (self *GmailAuthorizer) Login() (EmailInterface, error) {
 		ClientSecret: clientSecret,
 		RedirectURL:  "http://127.0.0.1:44444",
 		Scopes:       []string{"https://mail.google.com/"},
-		Endpoint:     google.Endpoint,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  "https://accounts.google.com/o/oauth2/auth",
+			TokenURL: "https://oauth2.googleapis.com/token",
+		},
 	}
 
 	// Try to load existing token, fall back to interactive auth
