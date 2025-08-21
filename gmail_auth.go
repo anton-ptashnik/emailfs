@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"os"
@@ -34,30 +32,28 @@ func (self *GmailAuthorizer) Login() (EmailInterface, error) {
 		Endpoint:     google.Endpoint,
 	}
 
-	_token, err := loadToken(self.tokenFilepath)
+	// Try to load existing token, fall back to interactive auth
+	token, err := loadToken(self.tokenFilepath)
 	if err != nil {
-		_token, err = interactiveAuth(conf)
+		token, err = interactiveAuth(conf)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("authentication failed: %w", err)
 		}
-		saveToken(self.tokenFilepath, _token)
+		saveToken(self.tokenFilepath, token)
 	}
+
+	// Get fresh token (handles refresh automatically)
+	tokenSrc := conf.TokenSource(context.Background(), token)
+	freshToken, err := tokenSrc.Token()
 	if err != nil {
-		return nil, err
-	}
-	tokenSrc := conf.TokenSource(context.Background(), _token)
-	token, err := tokenSrc.Token()
-	if err != nil {
-		return nil, errors.New("Token refresh err")
+		return nil, fmt.Errorf("token refresh failed: %w", err)
 	}
 
 	email := os.Getenv("EMAIL_ADDRESS")
-
-	// Use XOAUTH2 via go-sasl
-	xoauth2 := NewXOAuth2(email, token.AccessToken)
+	xoauth2 := NewXOAuth2(email, freshToken.AccessToken)
 
 	if err := self.c.Authenticate(xoauth2); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("IMAP authentication failed: %w", err)
 	}
 
 	return &GoImapEmailInterface{c: self.c}, nil
@@ -78,7 +74,7 @@ func NewGAuth(tokenFilepath string) (*GmailAuthorizer, error) {
 func interactiveAuth(conf *oauth2.Config) (*oauth2.Token, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:44444")
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to start listener: %w", err)
 	}
 	defer listener.Close()
 
@@ -88,7 +84,7 @@ func interactiveAuth(conf *oauth2.Config) (*oauth2.Token, error) {
 	openBrowser(authURL)
 	fmt.Println("If browser didn't open, visit:", authURL)
 
-	codeCh := make(chan string)
+	codeCh := make(chan string, 1)
 	go func() {
 		http.Serve(listener, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("state") != state {
@@ -102,12 +98,7 @@ func interactiveAuth(conf *oauth2.Config) (*oauth2.Token, error) {
 	}()
 
 	code := <-codeCh
-	log.Println("code: ", code)
-	tok, err := conf.Exchange(context.Background(), code)
-	if err != nil {
-		log.Fatal("OAuth exchange failed:", err)
-	}
-	return tok, nil
+	return conf.Exchange(context.Background(), code)
 }
 
 func saveToken(path string, token *oauth2.Token) error {
@@ -125,6 +116,7 @@ func loadToken(path string) (*oauth2.Token, error) {
 		return nil, err
 	}
 	defer f.Close()
+
 	var token oauth2.Token
 	if err := json.NewDecoder(f).Decode(&token); err != nil {
 		return nil, err
@@ -134,21 +126,15 @@ func loadToken(path string) (*oauth2.Token, error) {
 
 // XOAuth2 returns a sasl.Client for Gmail OAuth2
 func NewXOAuth2(username, accessToken string) sasl.Client {
-	return &xoauth2Client{
-		username:    username,
-		accessToken: accessToken,
-	}
+	return &xoauth2Client{username, accessToken}
 }
 
 type xoauth2Client struct {
-	username    string
-	accessToken string
+	username, accessToken string
 }
 
 func (a *xoauth2Client) Start() (mech string, ir []byte, err error) {
-	mech = "XOAUTH2"
-	ir = []byte(fmt.Sprintf("user=%s\x01auth=Bearer %s\x01\x01", a.username, a.accessToken))
-	return
+	return "XOAUTH2", []byte(fmt.Sprintf("user=%s\x01auth=Bearer %s\x01\x01", a.username, a.accessToken)), nil
 }
 
 func (a *xoauth2Client) Next(challenge []byte) (response []byte, err error) {
