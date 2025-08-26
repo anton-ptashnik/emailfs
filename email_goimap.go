@@ -147,22 +147,20 @@ func (s *GoImapUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessage
 	}
 	err := s.reader.initFetch(100)
 	if err != nil {
-		return err
+		log.Fatalf("failed to init fetch: %v", err)
 	}
 
-	go func() {
-		for emailsMetadata, err := s.reader.fetchNext(); err == nil; emailsMetadata, err = s.reader.fetchNext() {
-			_, known := removedMessagesByUids[emailsMetadata.uid]
-			if known {
-				delete(removedMessagesByUids, emailsMetadata.uid)
-			} else {
-				newMessages <- emailsMetadata
-			}
+	for emailsMetadata, err := s.reader.fetchNext(); err == nil; emailsMetadata, err = s.reader.fetchNext() {
+		_, known := removedMessagesByUids[emailsMetadata.uid]
+		if known {
+			delete(removedMessagesByUids, emailsMetadata.uid)
+		} else {
+			newMessages <- emailsMetadata
 		}
-		for _, v := range removedMessagesByUids {
-			removedMessages <- v
-		}
-	}()
+	}
+	for _, v := range removedMessagesByUids {
+		removedMessages <- v
+	}
 	return nil
 }
 

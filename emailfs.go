@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/winfsp/cgofuse/fuse"
 )
@@ -30,6 +31,7 @@ type EmailFs struct {
 	userId          uint
 	newMessages     chan EmailMetadata
 	removedMessages chan EmailMetadata
+	updateInterval  time.Duration
 }
 
 func (self *EmailFs) Init() {
@@ -37,7 +39,18 @@ func (self *EmailFs) Init() {
 	self.emailsMetadata = make(map[string]EmailMetadata)
 	self.newMessages = make(chan EmailMetadata, 500)
 	self.removedMessages = make(chan EmailMetadata, 500)
-	self.emailNotifier.notify([]EmailMetadata{}, self.newMessages, self.removedMessages)
+	self.updateInterval = time.Second * 1
+
+	go func() {
+		// todo refactor
+		var currentMetadata []EmailMetadata
+		for _, v := range self.emailsMetadata {
+			currentMetadata = append(currentMetadata, v)
+		}
+		self.emailNotifier.notify(currentMetadata, self.newMessages, self.removedMessages)
+		<-time.After(self.updateInterval)
+		self.fetchUpdates()
+	}()
 }
 
 func (self *EmailFs) Destroy() {}
@@ -95,17 +108,8 @@ func (self *EmailFs) Readdir(path string,
 	// fill(".", &fuse.Stat_t{Mode: syscall.S_IFDIR | 0755}, 1)
 	// fill("..", &fuse.Stat_t{Mode: syscall.S_IFDIR | 0755}, 2)
 
-	for more := true; more; {
-		select {
-		case email := <-self.newMessages:
-			email.subject = ClearFilename(email.subject)
-			self.emailsMetadata[fmt.Sprintf("/%s", email.subject)] = email
-		case email := <-self.removedMessages:
-			delete(self.emailsMetadata, fmt.Sprintf("/%s", email.subject))
-		default:
-			more = false
-		}
-	}
+	self.fetchUpdates()
+
 	var stat fuse.Stat_t
 	stat.Mode = fuse.S_IFREG | 0440
 	for _, email := range self.emailsMetadata {
@@ -118,4 +122,18 @@ func (self *EmailFs) Readdir(path string,
 		}
 	}
 	return
+}
+
+func (self *EmailFs) fetchUpdates() {
+	for more := true; more; {
+		select {
+		case email := <-self.newMessages:
+			email.subject = ClearFilename(email.subject)
+			self.emailsMetadata[fmt.Sprintf("/%s", email.subject)] = email
+		case email := <-self.removedMessages:
+			delete(self.emailsMetadata, fmt.Sprintf("/%s", email.subject))
+		default:
+			more = false
+		}
+	}
 }
