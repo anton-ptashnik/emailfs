@@ -40,10 +40,6 @@ func TestReaddir(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		subjects = append(subjects, fmt.Sprintf("email subject %d", i))
 	}
-	var testMetadata []EmailMetadata
-	for _, v := range subjects {
-		testMetadata = append(testMetadata, EmailMetadata{subject: v})
-	}
 
 	emailNotifier := NewFakeUpdatesNotifier()
 	fs := EmailFs{emailNotifier: emailNotifier}
@@ -56,15 +52,13 @@ func TestReaddir(t *testing.T) {
 		dirItems = append(dirItems, name)
 		return true
 	}
-	for _, v := range testMetadata {
-		emailNotifier.newMessages <- v
+	for _, v := range subjects {
+		emailNotifier.newMessages <- EmailMetadata{subject: v}
 	}
 
 	fs.Readdir("/", fill, 0, 0)
 
-	slices.Sort(subjects)
-	slices.Sort(dirItems)
-	if slices.Compare(subjects, dirItems) != 0 {
+	if !checkSubjectsMatch(subjects, dirItems) {
 		t.Errorf("Exp %s got %s", subjects, dirItems)
 	}
 }
@@ -73,10 +67,6 @@ func TestReaddirFailsOnProhibitedFilename(t *testing.T) {
 	var subjects []string
 	for i := 0; i < 5; i++ {
 		subjects = append(subjects, fmt.Sprintf("email subject %d", i))
-	}
-	var testMetadata []EmailMetadata
-	for _, v := range subjects {
-		testMetadata = append(testMetadata, EmailMetadata{subject: v})
 	}
 
 	emailNotifier := NewFakeUpdatesNotifier()
@@ -88,8 +78,8 @@ func TestReaddirFailsOnProhibitedFilename(t *testing.T) {
 	fill := func(name string, stat *fuse.Stat_t, ofst int64) bool {
 		return false
 	}
-	for _, v := range testMetadata {
-		emailNotifier.newMessages <- v
+	for _, v := range subjects {
+		emailNotifier.newMessages <- EmailMetadata{subject: v}
 	}
 
 	errCode := fs.Readdir("/", fill, 0, 0)
@@ -126,12 +116,6 @@ func TestRead(t *testing.T) {
 	}
 }
 
-func checkSubjectsMatch(submittedSubjects []string, listedSubjects []string) bool {
-	slices.Sort(submittedSubjects)
-	slices.Sort(listedSubjects)
-	return slices.Compare(submittedSubjects, listedSubjects) == 0
-}
-
 func TestReaddirIncludesEmailUpdates(t *testing.T) {
 	var testSubjects []string
 	for i := 0; i < 100; i++ {
@@ -165,7 +149,7 @@ func TestReaddirIncludesEmailUpdates(t *testing.T) {
 	fs.Readdir("/", fill, 0, 0)
 
 	if !checkSubjectsMatch(testSubjects, listedDirItems) {
-		t.Errorf("Exp %v got %s", testSubjects, listedDirItems)
+		t.Errorf("Exp %s got %s", testSubjects, listedDirItems)
 	}
 
 	listedDirItems = []string{}
@@ -175,7 +159,7 @@ func TestReaddirIncludesEmailUpdates(t *testing.T) {
 	fs.Readdir("/", fill, 0, 0)
 
 	if !checkSubjectsMatch(testSubjects, listedDirItems) {
-		t.Errorf("Exp %v got %s", testSubjects, listedDirItems)
+		t.Errorf("Exp %s got %s", testSubjects, listedDirItems)
 	}
 }
 
@@ -194,4 +178,10 @@ func TestEmailUpdatesArePeriodicallyFetched(t *testing.T) {
 			t.Fatalf("Timeout waiting for notify to be called: expected 10 calls, got %d", i)
 		}
 	}
+}
+
+func checkSubjectsMatch(submittedSubjects []string, listedSubjects []string) bool {
+	slices.Sort(submittedSubjects)
+	slices.Sort(listedSubjects)
+	return slices.Compare(submittedSubjects, listedSubjects) == 0
 }
