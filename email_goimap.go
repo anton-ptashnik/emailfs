@@ -140,7 +140,7 @@ type GoImapUpdatesNotifier struct {
 	reader EmailInterface
 }
 
-func (s *GoImapUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata) error {
+func (s *GoImapUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata) {
 	removedMessagesByUids := make(map[uint64]EmailMetadata)
 	for _, v := range knownMessages {
 		removedMessagesByUids[v.uid] = v
@@ -161,7 +161,6 @@ func (s *GoImapUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessage
 	for _, v := range removedMessagesByUids {
 		removedMessages <- v
 	}
-	return nil
 }
 
 func NewGoImapUpdatesNotifier(reader EmailInterface) *GoImapUpdatesNotifier {

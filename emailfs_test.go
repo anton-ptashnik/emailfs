@@ -17,11 +17,10 @@ type FakeUpdatesNotifier struct {
 	notifyCalledChan chan bool
 }
 
-func (s *FakeUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata) error {
+func (s *FakeUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata) {
 	s.newMessages = newMessages
 	s.removedMessages = removedMessages
 	s.notifyCalledChan <- true
-	return nil
 }
 
 func NewFakeUpdatesNotifier() *FakeUpdatesNotifier {

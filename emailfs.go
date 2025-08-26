@@ -19,7 +19,7 @@ type EmailReader interface {
 }
 
 type EmailUpdatesNotifier interface {
-	notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata) error
+	notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata)
 }
 
 type EmailFs struct {
