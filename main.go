@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/winfsp/cgofuse/fuse"
@@ -31,7 +32,12 @@ func main() {
 
 	emailNotifier := NewGoImapUpdatesNotifier(emailInterface)
 	emailReader := NewGoImapEmailReader(emailInterface)
-	hellofs := &EmailFs{emailNotifier: emailNotifier, emailReader: emailReader, userId: userId}
+	hellofs := &EmailFs{
+		emailNotifier:  emailNotifier,
+		emailReader:    emailReader,
+		userId:         userId,
+		updateInterval: time.Minute * 1,
+	}
 	host := fuse.NewFileSystemHost(hellofs)
 	args, err := parseArgs()
 	if err != nil {

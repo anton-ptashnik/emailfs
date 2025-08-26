@@ -39,17 +39,18 @@ func (self *EmailFs) Init() {
 	self.emailsMetadata = make(map[string]EmailMetadata)
 	self.newMessages = make(chan EmailMetadata, 500)
 	self.removedMessages = make(chan EmailMetadata, 500)
-	self.updateInterval = time.Second * 1
 
 	go func() {
-		// todo refactor
-		var currentMetadata []EmailMetadata
-		for _, v := range self.emailsMetadata {
-			currentMetadata = append(currentMetadata, v)
+		for {
+			// todo refactor
+			var currentMetadata []EmailMetadata
+			for _, v := range self.emailsMetadata {
+				currentMetadata = append(currentMetadata, v)
+			}
+			self.emailNotifier.notify(currentMetadata, self.newMessages, self.removedMessages)
+			<-time.After(self.updateInterval)
+			self.fetchUpdates()
 		}
-		self.emailNotifier.notify(currentMetadata, self.newMessages, self.removedMessages)
-		<-time.After(self.updateInterval)
-		self.fetchUpdates()
 	}()
 }
 

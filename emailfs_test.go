@@ -184,7 +184,7 @@ func TestEmailUpdatesArePeriodicallyFetched(t *testing.T) {
 	testSubjects = append(testSubjects, "email subject 1")
 
 	emailNotifier := NewFakeUpdatesNotifier()
-	fs := EmailFs{emailNotifier: emailNotifier}
+	fs := EmailFs{emailNotifier: emailNotifier, updateInterval: time.Second * 0}
 	fs.Init()
 
 	for i := 0; i < 10; i++ {
