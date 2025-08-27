@@ -22,16 +22,18 @@ type EmailUpdatesNotifier interface {
 	notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata)
 }
 
+type TimerStarter func() <-chan time.Time
+
 type EmailFs struct {
 	fuse.FileSystemBase
-	emailReader     EmailReader
-	emailNotifier   EmailUpdatesNotifier
-	emailsMetadata  map[string]EmailMetadata
-	openFiles       map[uint64]string
-	userId          uint
-	newMessages     chan EmailMetadata
-	removedMessages chan EmailMetadata
-	updateInterval  time.Duration
+	emailReader         EmailReader
+	emailNotifier       EmailUpdatesNotifier
+	emailsMetadata      map[string]EmailMetadata
+	openFiles           map[uint64]string
+	userId              uint
+	newMessages         chan EmailMetadata
+	removedMessages     chan EmailMetadata
+	updateIntervalTimer TimerStarter
 }
 
 func (self *EmailFs) Init() {
@@ -48,7 +50,7 @@ func (self *EmailFs) Init() {
 				currentMetadata = append(currentMetadata, v)
 			}
 			self.emailNotifier.notify(currentMetadata, self.newMessages, self.removedMessages)
-			<-time.After(self.updateInterval)
+			<-self.updateIntervalTimer()
 			self.fetchUpdates()
 		}
 	}()

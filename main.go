@@ -33,10 +33,13 @@ func main() {
 	emailNotifier := NewGoImapUpdatesNotifier(emailInterface)
 	emailReader := NewGoImapEmailReader(emailInterface)
 	hellofs := &EmailFs{
-		emailNotifier:  emailNotifier,
-		emailReader:    emailReader,
-		userId:         userId,
-		updateInterval: time.Minute * 1,
+		emailNotifier: emailNotifier,
+		emailReader:   emailReader,
+		userId:        userId,
+		//todo increase delay after testing
+		updateIntervalTimer: func() <-chan time.Time {
+			return time.After(time.Minute * 1)
+		},
 	}
 	host := fuse.NewFileSystemHost(hellofs)
 	args, err := parseArgs()

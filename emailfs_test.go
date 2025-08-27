@@ -20,6 +20,7 @@ type FakeUpdatesNotifier struct {
 func (s *FakeUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata) {
 	s.newMessages = newMessages
 	s.removedMessages = removedMessages
+	s.knownMessages = knownMessages
 	s.notifyCalledChan <- true
 }
 
@@ -42,7 +43,7 @@ func TestReaddir(t *testing.T) {
 	}
 
 	emailNotifier := NewFakeUpdatesNotifier()
-	fs := EmailFs{emailNotifier: emailNotifier}
+	fs := EmailFs{emailNotifier: emailNotifier, updateIntervalTimer: createNeverTickUpdateIntervalTimer}
 	fs.Init()
 
 	<-emailNotifier.notifyCalledChan
@@ -70,7 +71,7 @@ func TestReaddirFailsOnProhibitedFilename(t *testing.T) {
 	}
 
 	emailNotifier := NewFakeUpdatesNotifier()
-	fs := EmailFs{emailNotifier: emailNotifier}
+	fs := EmailFs{emailNotifier: emailNotifier, updateIntervalTimer: createNeverTickUpdateIntervalTimer}
 	fs.Init()
 
 	<-emailNotifier.notifyCalledChan
@@ -97,7 +98,7 @@ func TestRead(t *testing.T) {
 
 	emailReader := FakeEmailReader{}
 	emailNotifier := NewFakeUpdatesNotifier()
-	fs := EmailFs{emailReader: &emailReader, emailNotifier: emailNotifier, userId: 1000}
+	fs := EmailFs{emailReader: &emailReader, emailNotifier: emailNotifier, userId: 1000, updateIntervalTimer: createNeverTickUpdateIntervalTimer}
 	fs.Init()
 
 	<-emailNotifier.notifyCalledChan
@@ -123,7 +124,7 @@ func TestReaddirIncludesEmailUpdates(t *testing.T) {
 	}
 
 	emailNotifier := NewFakeUpdatesNotifier()
-	fs := EmailFs{emailNotifier: emailNotifier}
+	fs := EmailFs{emailNotifier: emailNotifier, updateIntervalTimer: createNeverTickUpdateIntervalTimer}
 	fs.Init()
 
 	<-emailNotifier.notifyCalledChan
@@ -164,12 +165,15 @@ func TestReaddirIncludesEmailUpdates(t *testing.T) {
 }
 
 func TestEmailUpdatesArePeriodicallyFetched(t *testing.T) {
-	var testSubjects []string
-	testSubjects = append(testSubjects, "email subject 1")
 
 	emailNotifier := NewFakeUpdatesNotifier()
-	fs := EmailFs{emailNotifier: emailNotifier, updateInterval: time.Second * 0}
+	updateIntervalTick := make(chan time.Time)
+	fs := EmailFs{emailNotifier: emailNotifier, updateIntervalTimer: func() <-chan time.Time {
+		return updateIntervalTick
+	}}
+
 	fs.Init()
+	var testSubjects []string
 
 	for i := 0; i < 10; i++ {
 		select {
@@ -177,6 +181,18 @@ func TestEmailUpdatesArePeriodicallyFetched(t *testing.T) {
 		case <-time.After(time.Second * 2):
 			t.Fatalf("Timeout waiting for notify to be called: expected 10 calls, got %d", i)
 		}
+
+		knownSubjects := []string{}
+		for _, v := range emailNotifier.knownMessages {
+			knownSubjects = append(knownSubjects, v.subject)
+		}
+		if !checkSubjectsMatch(testSubjects, knownSubjects) {
+			t.Errorf("Exp %s got %s", testSubjects, knownSubjects)
+		}
+
+		testSubjects = append(testSubjects, fmt.Sprintf("email subject %d", i))
+		emailNotifier.newMessages <- EmailMetadata{subject: testSubjects[i]}
+		updateIntervalTick <- time.Now()
 	}
 }
 
@@ -184,4 +200,8 @@ func checkSubjectsMatch(submittedSubjects []string, listedSubjects []string) boo
 	slices.Sort(submittedSubjects)
 	slices.Sort(listedSubjects)
 	return slices.Compare(submittedSubjects, listedSubjects) == 0
+}
+
+func createNeverTickUpdateIntervalTimer() <-chan time.Time {
+	return make(chan time.Time)
 }
