@@ -36,6 +36,18 @@ func (s *FakeEmailReader) read(id uint64) string {
 	return s.body
 }
 
+type FakeEmailRemover struct {
+	retErr error
+}
+
+func (s *FakeEmailRemover) remove(id uint64) error {
+	return s.retErr
+}
+
+func NewFakeEmailRemover(retErr error) *FakeEmailRemover {
+	return &FakeEmailRemover{retErr: retErr}
+}
+
 func TestReaddir(t *testing.T) {
 	var subjects []string
 	for i := 0; i < 100; i++ {
@@ -165,7 +177,6 @@ func TestReaddirIncludesEmailUpdates(t *testing.T) {
 }
 
 func TestEmailUpdatesArePeriodicallyFetched(t *testing.T) {
-
 	emailNotifier := NewFakeUpdatesNotifier()
 	updateIntervalTick := make(chan time.Time)
 	fs := EmailFs{emailNotifier: emailNotifier, updateIntervalTimer: func() <-chan time.Time {
@@ -193,6 +204,43 @@ func TestEmailUpdatesArePeriodicallyFetched(t *testing.T) {
 		testSubjects = append(testSubjects, fmt.Sprintf("email subject %d", i))
 		emailNotifier.newMessages <- EmailMetadata{subject: testSubjects[i]}
 		updateIntervalTick <- time.Now()
+	}
+}
+
+func TestEmailRemoval(t *testing.T) {
+	emailRemover := NewFakeEmailRemover(nil)
+	emailNotifier := NewFakeUpdatesNotifier()
+	subjects := []string{"email subject 1", "email subject 2", "email subject 3"}
+	fs := EmailFs{emailRemover: emailRemover, updateIntervalTimer: createNeverTickUpdateIntervalTimer, emailNotifier: emailNotifier}
+	fs.Init()
+
+	<-emailNotifier.notifyCalledChan
+
+	var dirItems []string
+	fill := func(name string, stat *fuse.Stat_t, ofst int64) bool {
+		dirItems = append(dirItems, name)
+		return true
+	}
+	for i, v := range subjects {
+		emailNotifier.newMessages <- EmailMetadata{subject: v, uid: uint64(i)}
+	}
+
+	fs.Readdir("/", fill, 0, 0)
+
+	if !checkSubjectsMatch(subjects, dirItems) {
+		t.Errorf("Exp %s got %s", subjects, dirItems)
+	}
+
+	errCode := fs.Unlink("/" + subjects[0])
+	if errCode != 0 {
+		t.Errorf("Received %d errc instead of 0", errCode)
+	}
+
+	subjects = subjects[1:]
+	dirItems = dirItems[:0]
+	fs.Readdir("/", fill, 0, 0)
+	if !checkSubjectsMatch(subjects, dirItems) {
+		t.Errorf("Exp %s got %s", subjects, dirItems)
 	}
 }
 

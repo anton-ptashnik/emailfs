@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"strings"
@@ -48,7 +49,11 @@ func (self *GoImapEmailInterface) fetchNext() (EmailMetadata, error) {
 		closeErr := self.fetchCmd.Close()
 		return EmailMetadata{}, errors.Join(err, closeErr, errors.New("msg reading error"))
 	}
-	return EmailMetadata{subject: msg.Envelope.Subject, uid: uint64(msg.UID), bodyLen: msg.RFC822Size}, nil
+	var subject string
+	if msg.Envelope != nil {
+		subject = msg.Envelope.Subject
+	}
+	return EmailMetadata{subject: subject, uid: uint64(msg.UID), bodyLen: msg.RFC822Size}, nil
 }
 
 func (self *GoImapEmailInterface) read(id uint64) string {
@@ -130,10 +135,85 @@ func (self *GoImapEmailInterface) Logout() {
 	self.c.Close()
 }
 
+func (self *GoImapEmailInterface) remove(id uint64) error {
+	uidSet := imap.UIDSetNum(imap.UID(id))
+
+	// Gmail-specific deletion: Move to Trash folder instead of marking as deleted
+	// This is the proper way to delete emails in Gmail via IMAP
+	log.Printf("Moving message UID %d to Trash folder", id)
+
+	// Try to move to Gmail's Trash folder
+	trashFolder := "[Gmail]/Trash"
+	moveCmd := self.c.Move(uidSet, trashFolder)
+	if _, err := moveCmd.Wait(); err != nil {
+		log.Printf("Failed to move to %s, trying alternative folder names: %v", trashFolder, err)
+
+		// Try alternative Trash folder names that Gmail might use
+		alternativeNames := []string{"[Google Mail]/Trash", "Trash", "[Gmail]/Bin", "[Google Mail]/Bin"}
+
+		moveSucceeded := false
+		for _, folder := range alternativeNames {
+			log.Printf("Attempting to move to folder: %s", folder)
+			moveCmd := self.c.Move(uidSet, folder)
+			if _, err := moveCmd.Wait(); err != nil {
+				log.Printf("Failed to move to %s: %v", folder, err)
+				continue
+			}
+			log.Printf("Successfully moved message to %s", folder)
+			moveSucceeded = true
+			break
+		}
+
+		if moveSucceeded {
+			return nil
+		}
+
+		// If all move attempts failed, fall back to the traditional delete + expunge method
+		log.Printf("All move attempts failed, falling back to delete+expunge method")
+
+		storeFlags := &imap.StoreFlags{
+			Op:    imap.StoreFlagsAdd,
+			Flags: []imap.Flag{imap.FlagDeleted},
+		}
+
+		if err := self.c.Store(uidSet, storeFlags, nil); err != nil {
+			return fmt.Errorf("failed to mark message as deleted: %v", err)
+		}
+
+		if err := self.c.Expunge(); err != nil {
+			return fmt.Errorf("failed to expunge deleted message: %v", err)
+		}
+
+		log.Printf("Message marked as deleted and expunged (may still be in All Mail)")
+		return nil
+	}
+
+	log.Printf("Successfully moved message to Trash folder")
+	return nil
+
+	// seqSet := imap.UIDSetNum(imap.UID(id))
+
+	// storeFlags := &imap.StoreFlags{
+	// 	Op:    imap.StoreFlagsAdd,
+	// 	Flags: []imap.Flag{imap.FlagDeleted},
+	// }
+
+	// if err := self.c.Store(seqSet, storeFlags, nil); err != nil {
+	// 	return fmt.Errorf("failed to mark message as deleted: %v", err)
+	// }
+
+	// if err := self.c.Expunge(); err != nil {
+	// 	return fmt.Errorf("failed to expunge deleted message: %v", err)
+	// }
+
+	// return nil
+}
+
 type EmailInterface interface {
 	initFetch(lastMessagesCount uint32) error
 	fetchNext() (EmailMetadata, error)
 	read(id uint64) string
+	remove(id uint64) error
 }
 
 type GoImapUpdatesNotifier struct {
@@ -151,6 +231,9 @@ func (s *GoImapUpdatesNotifier) notify(knownMessages []EmailMetadata, newMessage
 	}
 
 	for emailsMetadata, err := s.reader.fetchNext(); err == nil; emailsMetadata, err = s.reader.fetchNext() {
+		if emailsMetadata.bodyLen == 0 {
+			continue
+		}
 		_, known := removedMessagesByUids[emailsMetadata.uid]
 		if known {
 			delete(removedMessagesByUids, emailsMetadata.uid)

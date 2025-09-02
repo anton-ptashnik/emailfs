@@ -18,22 +18,27 @@ type EmailReader interface {
 	read(id uint64) string
 }
 
+type EmailRemover interface {
+	remove(id uint64) error
+}
+
 type EmailUpdatesNotifier interface {
 	notify(knownMessages []EmailMetadata, newMessages chan<- EmailMetadata, removedMessages chan<- EmailMetadata)
 }
 
-type TimerStarter func() <-chan time.Time
+type TimerFunc func() <-chan time.Time
 
 type EmailFs struct {
 	fuse.FileSystemBase
 	emailReader         EmailReader
+	emailRemover        EmailRemover
 	emailNotifier       EmailUpdatesNotifier
 	emailsMetadata      map[string]EmailMetadata
 	openFiles           map[uint64]string
 	userId              uint
 	newMessages         chan EmailMetadata
 	removedMessages     chan EmailMetadata
-	updateIntervalTimer TimerStarter
+	updateIntervalTimer TimerFunc
 }
 
 func (self *EmailFs) Init() {
@@ -69,6 +74,17 @@ func (self *EmailFs) Open(path string, flags int) (errc int, fh uint64) {
 	return 0, uid
 }
 
+func (self *EmailFs) Unlink(path string) int {
+	log.Printf("Unlink file %v\n, ", self.emailsMetadata[path])
+	err := self.emailRemover.remove(self.emailsMetadata[path].uid)
+	if err != nil {
+		log.Printf("Error removing file %s: %v\n", path, err)
+		return -1
+	}
+	delete(self.emailsMetadata, path)
+	return 0
+}
+
 func (self *EmailFs) Release(path string, fh uint64) int {
 	log.Printf("Release file %s\n", path)
 	delete(self.openFiles, fh)
@@ -84,7 +100,7 @@ func (self *EmailFs) Getattr(path string, stat *fuse.Stat_t, fh uint64) (errc in
 	}
 
 	log.Printf("Getattr %s\n", path)
-	stat.Mode = fuse.S_IFREG | 0440
+	stat.Mode = fuse.S_IFREG | 0660
 	stat.Size = int64(self.emailsMetadata[path].bodyLen)
 	stat.Blocks = (stat.Size + 511) / 512
 	return 0
@@ -114,7 +130,7 @@ func (self *EmailFs) Readdir(path string,
 	self.fetchUpdates()
 
 	var stat fuse.Stat_t
-	stat.Mode = fuse.S_IFREG | 0440
+	stat.Mode = fuse.S_IFREG | 0660
 	for _, email := range self.emailsMetadata {
 		stat.Size = int64(email.bodyLen)
 		stat.Blocks = (stat.Size + 511) / 512

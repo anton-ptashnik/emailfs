@@ -35,6 +35,7 @@ func main() {
 	hellofs := &EmailFs{
 		emailNotifier: emailNotifier,
 		emailReader:   emailReader,
+		emailRemover:  emailInterface,
 		userId:        userId,
 		//todo increase delay after testing
 		updateIntervalTimer: func() <-chan time.Time {
